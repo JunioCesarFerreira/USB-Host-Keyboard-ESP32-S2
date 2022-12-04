@@ -12,16 +12,24 @@
 
 keyboard_data_received_cb usb_keyboard_callback;
 
-char data_received[USB_BUFFER_LENGTH]; 
+char data_received[USB_KEYBOARD_BUFFER_LENGTH]; 
 uint8_t data_received_length; 
 
 void usb_data_trasnfer_cb(usb_transfer_t *transfer);
+void usb_opening_cb();
+void usb_opened_cb();
+void usb_close_cb();
 
 void USBKeyboard::begin(keyboard_data_received_cb cb)
 {
 	usb_keyboard_callback = cb;
 	clearBuffer();
-	startUsbHostTasks(usb_data_trasnfer_cb);
+	startUsbHostTasks(
+		usb_opening_cb, 
+		usb_opened_cb,
+		usb_data_trasnfer_cb,
+		usb_close_cb
+		);
 }
 
 char* USBKeyboard::getBuffer()
@@ -36,7 +44,7 @@ uint8_t USBKeyboard::bufferLength()
 
 void USBKeyboard::clearBuffer()
 {
-	for(int i=0;i<USB_BUFFER_LENGTH;i++)
+	for(int i=0;i<USB_KEYBOARD_BUFFER_LENGTH;i++)
 	{
 		data_received[i]=0;
 	}
@@ -181,6 +189,22 @@ char keyboard_mapping(uint8_t byte0, uint8_t byte2)
 	return (char)map_value;
 }
 
+
+void usb_opening_cb()
+{
+	usb_keyboard_callback(KEYBOARD_OPENING);
+}
+
+void usb_opened_cb()
+{
+	usb_keyboard_callback(KEYBOARD_OPENED);
+}
+
+void usb_close_cb()
+{
+	usb_keyboard_callback(KEYBOARD_CLOSE);
+}
+
 void usb_data_trasnfer_cb(usb_transfer_t *transfer)
 {
 	if (transfer->data_buffer[2] != 0) // Check byte to decode.
@@ -195,6 +219,6 @@ void usb_data_trasnfer_cb(usb_transfer_t *transfer)
 #endif
 		data_received[data_received_length] = keyboard_mapping(transfer->data_buffer[0], transfer->data_buffer[2]);
 		data_received_length++;
-		usb_keyboard_callback();
+		usb_keyboard_callback(KEYBOARD_TRANSFER);
 	}
 }

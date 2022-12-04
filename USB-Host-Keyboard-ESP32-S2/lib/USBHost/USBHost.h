@@ -1,6 +1,11 @@
-// this library was based on the links repository and documentation:
-// https://github.com/badjeff/esp32_s2_usb_host_hid_test
-// https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html
+/*
+ *
+ * UsbHost driver
+ * Author: Junio C Ferreira <jcf_ssp@hotmail.com>
+ * 
+ * Based on esp32_s2_usb_host_hid_test, by Jeff Leung <https://github.com/badjeff>
+ * 
+ */
 
 #ifndef USBHost_hpp
 #define USBHost_hpp
@@ -18,7 +23,15 @@
 #endif 
 
 typedef void (*usb_data_transfer_cb_t)(usb_transfer_t *transfer);
+typedef void (*usb_detected_cb_t)(void);
+typedef void (*usb_open_cb_t)(void);
+typedef void (*usb_close_cb_t)(void);
 
-void startUsbHostTasks(usb_data_transfer_cb_t callback);
+void startUsbHostTasks(
+    usb_detected_cb_t detected_cb, 
+    usb_open_cb_t open_cb, 
+    usb_data_transfer_cb_t transfer_cb, 
+    usb_close_cb_t close_cb
+    );
 
 #endif

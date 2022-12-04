@@ -1,3 +1,7 @@
+// this library was based on the links repository and documentation:
+// https://github.com/badjeff/esp32_s2_usb_host_hid_test
+// https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html
+
 #include "USBHost.h"
 
 //#define USB_HOST_DEBUG // to enable debug log this file.
@@ -39,6 +43,9 @@ typedef struct
 } class_driver_t;
 
 static usb_data_transfer_cb_t usb_data_transfer_cb;
+static usb_detected_cb_t usb_detected_cb;
+static usb_open_cb_t usb_open_cb;
+static usb_close_cb_t usb_close_cb;
 
 // Tasks
 static void usb_host_lib_daemon_task(void *arg);
@@ -46,9 +53,12 @@ static void usb_class_driver_task(void *arg);
 static void usb_host_task(void* args);
 
 // This allows reconnection.
-void startUsbHostTasks(usb_data_transfer_cb_t callback)
+void startUsbHostTasks(usb_detected_cb_t detected_cb, usb_open_cb_t open_cb, usb_data_transfer_cb_t transfer_cb, usb_close_cb_t close_cb)
 {
-	usb_data_transfer_cb = callback;
+	usb_data_transfer_cb = transfer_cb;
+	usb_detected_cb = detected_cb;
+	usb_open_cb = open_cb;
+	usb_close_cb = close_cb;
 	
 	xTaskCreatePinnedToCore(usb_host_task,
 							"usb_host_task",
@@ -155,6 +165,7 @@ static void client_event_cb(const usb_host_client_event_msg_t *event_msg, void *
 				driver_obj->dev_addr = event_msg->new_dev.address;
 				//Open the device next
 				driver_obj->actions |= ACTION_OPEN_DEV;
+				usb_detected_cb();
 			}
 			break;
 		case USB_HOST_CLIENT_EVENT_DEV_GONE:
@@ -162,6 +173,7 @@ static void client_event_cb(const usb_host_client_event_msg_t *event_msg, void *
 			{
 				//Cancel any other actions and close the device next
 				driver_obj->actions = ACTION_CLOSE_DEV;
+				usb_close_cb();
 			}
 			break;
 		default:
@@ -371,11 +383,13 @@ static void action_transfer_control(class_driver_t *driver_obj)
 
 		memcpy(transfer->data_buffer, &stp, USB_SETUP_PACKET_SIZE);
 		
-			USB_HOST_DEBUG_INFO("[usbHost]:transfer->data_buffer:");
-			for(int i=0; i < 8; i++) USB_HOST_DEBUG_ARGS(" %02X", transfer->data_buffer[i]);
-			USB_HOST_DEBUG_INFO("\n");
-			USB_HOST_DEBUG_ARGS("[usbHost]:transfer->data_buffer_size: %d\n", transfer->data_buffer_size);
-			USB_HOST_DEBUG_ARGS("[usbHost]:transfer->num_bytes: %d\n", transfer->num_bytes);
+#ifdef USB_HOST_DEBUG
+		USB_HOST_DEBUG_INFO("[usbHost]:transfer->data_buffer:");
+		for(int i=0; i < 8; i++) USB_HOST_DEBUG_ARGS(" %02X", transfer->data_buffer[i]);
+		USB_HOST_DEBUG_INFO("\n");
+		USB_HOST_DEBUG_ARGS("[usbHost]:transfer->data_buffer_size: %d\n", transfer->data_buffer_size);
+		USB_HOST_DEBUG_ARGS("[usbHost]:transfer->num_bytes: %d\n", transfer->num_bytes);
+#endif // USB_HOST_DEBUG
 		
 		transfer->bEndpointAddress = 0x00;
 		transfer->device_handle = driver_obj->dev_hdl;
@@ -400,27 +414,27 @@ static void action_transfer_control(class_driver_t *driver_obj)
 		{
 			driver_obj->actions |= ACTION_TRANSFER;
 
-				USB_HOST_DEBUG_INFO("[usbHost]:usb_host_transfer_submit_control - completed \n");
-				/*
-				 * USB Descriptor and Request Parser: https://eleccelerator.com/usbdescreqparser/#
-				 * https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-control-transfer
-				 */
-				USB_HOST_DEBUG_ARGS("[usbHost]:\nstatus %d, actual number of bytes transferred %d\n", transfer->status, transfer->actual_num_bytes);
-				for(int i=0; i < transfer->actual_num_bytes; i++) 
+			USB_HOST_DEBUG_INFO("[usbHost]:usb_host_transfer_submit_control - completed \n");
+			/*
+			 * USB Descriptor and Request Parser: https://eleccelerator.com/usbdescreqparser/#
+			 * https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-control-transfer
+			 */
+			USB_HOST_DEBUG_ARGS("[usbHost]:\nstatus %d, actual number of bytes transferred %d\n", transfer->status, transfer->actual_num_bytes);
+			for(int i=0; i < transfer->actual_num_bytes; i++) 
+			{
+				if (i == 8) 
 				{
-					if (i == 8) 
-					{
-						USB_HOST_DEBUG_INFO("[usbHost]:>>> Goto https://eleccelerator.com/usbdescreqparser/ \n");
-						USB_HOST_DEBUG_INFO("[usbHost]:>>> Copy & paste below HEX and parser as... USB HID Report Descriptor\n\n");
-					}
-					USB_HOST_DEBUG_ARGS("%02X ", transfer->data_buffer[i]);
+					USB_HOST_DEBUG_INFO("[usbHost]:>>> Goto https://eleccelerator.com/usbdescreqparser/ \n");
+					USB_HOST_DEBUG_INFO("[usbHost]:>>> Copy & paste below HEX and parser as... USB HID Report Descriptor\n\n");
 				}
-				USB_HOST_DEBUG_INFO("\n\n");
-				uint8_t *const data = (uint8_t *const)(transfer->data_buffer + USB_SETUP_PACKET_SIZE);
-				size_t len = transfer->actual_num_bytes - 8;
-				USB_HOST_DEBUG_INFO("[usbHost]:HID Report Descriptor\n");
-				USB_HOST_DEBUG_ARGS("[usbHost]:> size: %ld bytes\n", len);
-				
+				USB_HOST_DEBUG_ARGS("%02X ", transfer->data_buffer[i]);
+			}
+			USB_HOST_DEBUG_INFO("\n\n");
+			uint8_t *const data = (uint8_t *const)(transfer->data_buffer + USB_SETUP_PACKET_SIZE);
+			size_t len = transfer->actual_num_bytes - 8;
+			USB_HOST_DEBUG_INFO("[usbHost]:HID Report Descriptor\n");
+			USB_HOST_DEBUG_ARGS("[usbHost]:> size: %ld bytes\n", len);
+			usb_open_cb();	
 		}
 
 		vTaskDelay(1); //Short delay to let client task spin up
