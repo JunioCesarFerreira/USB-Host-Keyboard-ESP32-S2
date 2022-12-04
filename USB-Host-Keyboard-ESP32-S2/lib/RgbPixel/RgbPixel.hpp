@@ -18,6 +18,7 @@ Adafruit_NeoPixel pixels(1, PIN, NEO_GRB + NEO_KHZ800);
 
 enum RgbBasicColor
 {
+    RGB_OFF,
     RGB_RED,
     RGB_GREEN,
     RGB_BLUE,
@@ -28,14 +29,25 @@ enum RgbBasicColor
 
 class RgbPixelClass
 {
+    private:
+        RgbBasicColor actual;
+
     public:
         void begin()
         {
+            actual = RGB_OFF;
             pixels.setBrightness(10); // Default brightness
             pixels.begin(); // INITIALIZE NeoPixel (REQUIRED)
         }
+
+        RgbBasicColor get()
+        {
+            return actual;
+        }
+
         void set(RgbBasicColor color)
         {
+            actual = color;
             uint32_t value_color = 0;
             //Set the new color on the pixel.
             switch (color)
@@ -59,6 +71,7 @@ class RgbPixelClass
                     value_color = 0x00FF00FF;
                     break;            
                 default:
+                    value_color = 0x00000000;
                     break;
             }
             pixels.setPixelColor(0, value_color);

@@ -219,6 +219,10 @@ void usb_data_trasnfer_cb(usb_transfer_t *transfer)
 #endif
 		data_received[data_received_length] = keyboard_mapping(transfer->data_buffer[0], transfer->data_buffer[2]);
 		data_received_length++;
+		if (data_received_length == USB_KEYBOARD_BUFFER_LENGTH)
+		{
+			data_received_length=0;			
+		}
 		usb_keyboard_callback(KEYBOARD_TRANSFER);
 	}
 }
