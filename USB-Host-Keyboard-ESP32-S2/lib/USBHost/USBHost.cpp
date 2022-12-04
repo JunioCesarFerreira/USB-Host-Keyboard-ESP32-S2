@@ -1,5 +1,43 @@
 #include "USBHost.h"
 
+//#define USB_HOST_DEBUG // to enable debug log this file.
+
+#ifdef USB_HOST_DEBUG
+#define USB_HOST_DEBUG_ARGS(string,...) (printf(string,__VA_ARGS__))
+#define USB_HOST_DEBUG_INFO(string) (printf(string))
+#else
+#define USB_HOST_DEBUG_ARGS(string,...)
+#define USB_HOST_DEBUG_INFO(string)
+#endif
+
+#define CLIENT_NUM_EVENT_MSG       5
+#define ACTION_OPEN_DEV            0x01
+#define ACTION_GET_DEV_INFO        0x02
+#define ACTION_GET_DEV_DESC        0x04
+#define ACTION_GET_CONFIG_DESC     0x08
+#define ACTION_GET_STR_DESC        0x10
+#define ACTION_CLOSE_DEV           0x20
+#define ACTION_EXIT                0x40
+#define ACTION_CLAIM_INTF          0x0100
+#define ACTION_TRANSFER_CONTROL    0x0200
+#define ACTION_TRANSFER            0x0400
+
+static const char *TAG_DAEMON = "USB_HOST_DAEMON";
+static const char *TAG_HOST   = "USB_HOST_CLASS";
+
+typedef struct 
+{
+	usb_host_client_handle_t client_hdl;
+	uint8_t dev_addr;
+	usb_device_handle_t dev_hdl;
+	uint32_t actions;
+	uint16_t bMaxPacketSize0;
+	usb_ep_desc_t *ep_in;
+	usb_ep_desc_t *ep_out;
+	SemaphoreHandle_t transfer_done;
+	usb_transfer_status_t transfer_status;
+} class_driver_t;
+
 static usb_data_transfer_cb_t usb_data_transfer_cb;
 
 // Tasks
@@ -7,8 +45,7 @@ static void usb_host_lib_daemon_task(void *arg);
 static void usb_class_driver_task(void *arg);
 static void usb_host_task(void* args);
 
-/// @brief Inicializa tasks USB host.
-/// @param callback Evento de recebimento de dados.
+// This allows reconnection.
 void startUsbHostTasks(usb_data_transfer_cb_t callback)
 {
 	usb_data_transfer_cb = callback;
@@ -22,7 +59,6 @@ void startUsbHostTasks(usb_data_transfer_cb_t callback)
 							0);
 }
 
-/// @brief Tarefa que perciste a reconexão USB após desconecção do cabo.
 static void usb_host_task(void* args)
 {
 	while (true)
@@ -61,7 +97,7 @@ static void usb_host_task(void* args)
 		vTaskDelete(class_driver_task_hdl);
 		vTaskDelete(daemon_task_hdl);
 
-		printf("\n[usbHost]: *** loop usb task ***\n\n");
+		USB_HOST_DEBUG_INFO("\n[usbHost]: *** loop usb task ***\n\n");
 
 		vTaskDelay(pdMS_TO_TICKS(500));
 	}
@@ -71,13 +107,13 @@ static void usb_host_lib_daemon_task(void *arg)
 {
 	SemaphoreHandle_t signaling_sem = (SemaphoreHandle_t)arg;
 
-	printf("[usbHost]:Installing USB Host Library... ");
+	USB_HOST_DEBUG_INFO("[usbHost]:Installing USB Host Library... ");
 	usb_host_config_t host_config = {
 		.skip_phy_setup = false,
 		.intr_flags = ESP_INTR_FLAG_LEVEL1
 	};
 	ESP_ERROR_CHECK(usb_host_install(&host_config));
-	printf("installed.\n");
+	USB_HOST_DEBUG_INFO("installed.\n");
 
 	//Signal to the class driver task that the host library is installed
 	xSemaphoreGive(signaling_sem);
@@ -98,7 +134,7 @@ static void usb_host_lib_daemon_task(void *arg)
 			has_devices = false;
 		}
 	}
-	printf("[usbHost]:No more clients and devices\n");
+	USB_HOST_DEBUG_INFO("[usbHost]:No more clients and devices\n");
 
 	vTaskDelay(pdMS_TO_TICKS(100));
 	//Uninstall the USB Host Library
@@ -137,7 +173,7 @@ static void client_event_cb(const usb_host_client_event_msg_t *event_msg, void *
 static void action_open_dev(class_driver_t *driver_obj)
 {
 	assert(driver_obj->dev_addr != 0);
-	printf("[usbHost]:Opening device at address %d\n", driver_obj->dev_addr);
+	USB_HOST_DEBUG_ARGS("[usbHost]:Opening device at address %d\n", driver_obj->dev_addr);
 	ESP_ERROR_CHECK(usb_host_device_open(driver_obj->client_hdl, driver_obj->dev_addr, &driver_obj->dev_hdl));
 	
 	//Get the device's information next
@@ -151,9 +187,9 @@ static void action_get_info(class_driver_t *driver_obj)
 	usb_device_info_t dev_info;
 	ESP_ERROR_CHECK(usb_host_device_info(driver_obj->dev_hdl, &dev_info));
 	
-		printf("[usbHost]:Getting device information\n");
-		printf("[usbHost]:\t%s speed\n", (dev_info.speed == USB_SPEED_LOW) ? "Low" : "Full");
-		printf("[usbHost]:\tbConfigurationValue %d\n", dev_info.bConfigurationValue);
+	USB_HOST_DEBUG_INFO("[usbHost]:Getting device information\n");
+	USB_HOST_DEBUG_ARGS("[usbHost]:\t%s speed\n", (dev_info.speed == USB_SPEED_LOW) ? "Low" : "Full");
+	USB_HOST_DEBUG_ARGS("[usbHost]:\tbConfigurationValue %d\n", dev_info.bConfigurationValue);
 	
 	//Get the device descriptor next
 	driver_obj->actions &= ~ACTION_GET_DEV_INFO;
@@ -166,11 +202,12 @@ static void action_get_dev_desc(class_driver_t *driver_obj)
 	const usb_device_desc_t *dev_desc;
 	ESP_ERROR_CHECK(usb_host_get_device_descriptor(driver_obj->dev_hdl, &dev_desc));
    
-		printf("[usbHost]:Getting device descriptor\n");
-		printf("[usbHost]:\tidVendor 0x%04x\n", dev_desc->idVendor);
-		printf("[usbHost]:\tidProduct 0x%04x\n", dev_desc->idProduct);
-	
+	USB_HOST_DEBUG_INFO("[usbHost]:Getting device descriptor\n");
+	USB_HOST_DEBUG_ARGS("[usbHost]:\tidVendor 0x%04x\n", dev_desc->idVendor);
+	USB_HOST_DEBUG_ARGS("[usbHost]:\tidProduct 0x%04x\n", dev_desc->idProduct);
+#ifdef USB_HOST_DEBUG
 	usb_print_device_descriptor(dev_desc);
+#endif
 
 	driver_obj->bMaxPacketSize0 = dev_desc->bMaxPacketSize0;
 
@@ -182,10 +219,12 @@ static void action_get_dev_desc(class_driver_t *driver_obj)
 static void action_get_config_desc(class_driver_t *driver_obj)
 {
 	assert(driver_obj->dev_hdl != NULL);
-	printf("[usbHost]:Getting config descriptor\n");
+	USB_HOST_DEBUG_INFO("[usbHost]:Getting config descriptor\n");
 	const usb_config_desc_t *config_desc;
 	ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(driver_obj->dev_hdl, &config_desc));
+#ifdef USB_HOST_DEBUG
 	usb_print_config_descriptor(config_desc, NULL);
+#endif
 
 	//Get the device's string descriptors next
 	driver_obj->actions &= ~ACTION_GET_CONFIG_DESC;
@@ -197,21 +236,23 @@ static void action_get_str_desc(class_driver_t *driver_obj)
 	assert(driver_obj->dev_hdl != NULL);
 	usb_device_info_t dev_info;
 	ESP_ERROR_CHECK(usb_host_device_info(driver_obj->dev_hdl, &dev_info));
+#ifdef USB_HOST_DEBUG
 	if (dev_info.str_desc_manufacturer) 
 	{
-		printf("[usbHost]:Getting Manufacturer string descriptor\n");
+		USB_HOST_DEBUG_INFO("[usbHost]:Getting Manufacturer string descriptor\n");
 		usb_print_string_descriptor(dev_info.str_desc_manufacturer);
 	}
 	if (dev_info.str_desc_product) 
 	{
-		printf("[usbHost]:Getting Product string descriptor\n");
+		USB_HOST_DEBUG_INFO("[usbHost]:Getting Product string descriptor\n");
 		usb_print_string_descriptor(dev_info.str_desc_product);
 	}
 	if (dev_info.str_desc_serial_num) 
 	{
-		printf("[usbHost]:Getting Serial Number string descriptor\n");
+		USB_HOST_DEBUG_INFO("[usbHost]:Getting Serial Number string descriptor\n");
 		usb_print_string_descriptor(dev_info.str_desc_serial_num);
 	}
+#endif
 
 	//Claim the interface next
 	driver_obj->actions &= ~ACTION_GET_STR_DESC;
@@ -221,7 +262,7 @@ static void action_get_str_desc(class_driver_t *driver_obj)
 static void action_claim_interface(class_driver_t *driver_obj)
 {
 	assert(driver_obj->dev_hdl != NULL);
-	printf("[usbHost]:Getting config descriptor\n");
+	USB_HOST_DEBUG_INFO("[usbHost]:Getting config descriptor\n");
 	const usb_config_desc_t *config_desc;
 	ESP_ERROR_CHECK(usb_host_get_active_config_descriptor(driver_obj->dev_hdl, &config_desc));
 
@@ -231,11 +272,11 @@ static void action_claim_interface(class_driver_t *driver_obj)
 	for (size_t n = 0; n < config_desc->bNumInterfaces; n++)
 	{
 		const usb_intf_desc_t *intf = usb_parse_interface_descriptor(config_desc, n, 0, &offset);
-		printf("[usbHost]:Parsed intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
+		USB_HOST_DEBUG_ARGS("[usbHost]:Parsed intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
 		
 		if (intf->bInterfaceClass == 0x03) // HID - https://www.usb.org/defined-class-codes
 		{
-			printf("[usbHost]:Detected HID intf->bInterfaceClass: 0x%02x \n", intf->bInterfaceClass);
+			USB_HOST_DEBUG_ARGS("[usbHost]:Detected HID intf->bInterfaceClass: 0x%02x \n", intf->bInterfaceClass);
 
 			const usb_ep_desc_t *ep_in = nullptr;
 			const usb_ep_desc_t *ep_out = nullptr;
@@ -244,10 +285,10 @@ static void action_claim_interface(class_driver_t *driver_obj)
 			{
 				int _offset = 0;
 				ep = usb_parse_endpoint_descriptor_by_index(intf, i, config_desc->wTotalLength, &_offset);
-				printf("[usbHost]:\t > Detected EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
+				USB_HOST_DEBUG_ARGS("[usbHost]:\t > Detected EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
 				if (ep) 
 				{
-					printf("[usbHost]:address: 0x%02x, mps: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
+					USB_HOST_DEBUG_ARGS("[usbHost]:address: 0x%02x, mps: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
 					if (ep->bmAttributes != USB_TRANSFER_TYPE_INTR) 
 					{
 						// only support INTERRUPT > IN Report in action_transfer() for now
@@ -269,17 +310,17 @@ static void action_claim_interface(class_driver_t *driver_obj)
 				}
 				else 
 				{
-					printf("[usbHost]:error to parse endpoint by index; EP num: %d/%d, len: %d", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
+					USB_HOST_DEBUG_ARGS("[usbHost]:error to parse endpoint by index; EP num: %d/%d, len: %d", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
 				}
 			}
 			esp_err_t err = usb_host_interface_claim(driver_obj->client_hdl, driver_obj->dev_hdl, n, 0);
 			if (err) 
 			{
-				printf("[usbHost]:error interface claim status: %d", err);
+				USB_HOST_DEBUG_ARGS("[usbHost]:error interface claim status: %d", err);
 			} 
 			else 
 			{
-				printf("[usbHost]:Claimed HID intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
+				USB_HOST_DEBUG_ARGS("[usbHost]:Claimed HID intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
 				hidIntfClaimed = true;
 			}
 		}
@@ -330,11 +371,11 @@ static void action_transfer_control(class_driver_t *driver_obj)
 
 		memcpy(transfer->data_buffer, &stp, USB_SETUP_PACKET_SIZE);
 		
-			printf("[usbHost]:transfer->data_buffer:");
-			for(int i=0; i < 8; i++) printf(" %02X", transfer->data_buffer[i]);
-			printf("\n");
-			printf("[usbHost]:transfer->data_buffer_size: %d\n", transfer->data_buffer_size);
-			printf("[usbHost]:transfer->num_bytes: %d\n", transfer->num_bytes);
+			USB_HOST_DEBUG_INFO("[usbHost]:transfer->data_buffer:");
+			for(int i=0; i < 8; i++) USB_HOST_DEBUG_ARGS(" %02X", transfer->data_buffer[i]);
+			USB_HOST_DEBUG_INFO("\n");
+			USB_HOST_DEBUG_ARGS("[usbHost]:transfer->data_buffer_size: %d\n", transfer->data_buffer_size);
+			USB_HOST_DEBUG_ARGS("[usbHost]:transfer->num_bytes: %d\n", transfer->num_bytes);
 		
 		transfer->bEndpointAddress = 0x00;
 		transfer->device_handle = driver_obj->dev_hdl;
@@ -350,7 +391,7 @@ static void action_transfer_control(class_driver_t *driver_obj)
 			wait_for_transfer_done(transfer);
 			if (transfer->status != USB_TRANSFER_STATUS_COMPLETED) 
 			{
-				printf("[usbHost]:Transfer control failed - Status %d \n", transfer->status);
+				USB_HOST_DEBUG_ARGS("[usbHost]:Transfer control failed - Status %d \n", transfer->status);
 			}
 		}
 
@@ -359,27 +400,26 @@ static void action_transfer_control(class_driver_t *driver_obj)
 		{
 			driver_obj->actions |= ACTION_TRANSFER;
 
-				printf("[usbHost]:usb_host_transfer_submit_control - completed \n");
-				//>>>>> for HID Report Descriptor
-				// Explanation: https://electronics.stackexchange.com/questions/68141/
-				// USB Descriptor and Request Parser: https://eleccelerator.com/usbdescreqparser/#
-				// https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-control-transfer
-				//<<<<<				
-				printf("[usbHost]:\nstatus %d, actual number of bytes transferred %d\n", transfer->status, transfer->actual_num_bytes);
+				USB_HOST_DEBUG_INFO("[usbHost]:usb_host_transfer_submit_control - completed \n");
+				/*
+				 * USB Descriptor and Request Parser: https://eleccelerator.com/usbdescreqparser/#
+				 * https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-control-transfer
+				 */
+				USB_HOST_DEBUG_ARGS("[usbHost]:\nstatus %d, actual number of bytes transferred %d\n", transfer->status, transfer->actual_num_bytes);
 				for(int i=0; i < transfer->actual_num_bytes; i++) 
 				{
 					if (i == 8) 
 					{
-						printf("[usbHost]:>>> Goto https://eleccelerator.com/usbdescreqparser/ \n");
-						printf("[usbHost]:>>> Copy & paste below HEX and parser as... USB HID Report Descriptor\n\n");
+						USB_HOST_DEBUG_INFO("[usbHost]:>>> Goto https://eleccelerator.com/usbdescreqparser/ \n");
+						USB_HOST_DEBUG_INFO("[usbHost]:>>> Copy & paste below HEX and parser as... USB HID Report Descriptor\n\n");
 					}
-					printf("%02X ", transfer->data_buffer[i]);
+					USB_HOST_DEBUG_ARGS("%02X ", transfer->data_buffer[i]);
 				}
-				printf("\n\n");
+				USB_HOST_DEBUG_INFO("\n\n");
 				uint8_t *const data = (uint8_t *const)(transfer->data_buffer + USB_SETUP_PACKET_SIZE);
 				size_t len = transfer->actual_num_bytes - 8;
-				printf("[usbHost]:HID Report Descriptor\n");
-				printf("[usbHost]:> size: %ld bytes\n", len);
+				USB_HOST_DEBUG_INFO("[usbHost]:HID Report Descriptor\n");
+				USB_HOST_DEBUG_ARGS("[usbHost]:> size: %ld bytes\n", len);
 				
 		}
 
@@ -421,7 +461,7 @@ static void action_transfer(class_driver_t *driver_obj)
 			received_status = wait_for_transfer_done(transfer);
 			if (transfer->status != USB_TRANSFER_STATUS_COMPLETED) 
 			{
-				printf("[usbHost]:Transfer failed - Status %d \n", transfer->status);
+				USB_HOST_DEBUG_ARGS("[usbHost]:Transfer failed - Status %d \n", transfer->status);
 				vTaskDelay(10);
 				lastSendTime = xTaskGetTickCount();
 			}
@@ -452,10 +492,10 @@ static void aciton_close_dev(class_driver_t *driver_obj)
 	for (size_t n = 0; n < config_desc->bNumInterfaces; n++)
 	{
 		const usb_intf_desc_t *intf = usb_parse_interface_descriptor(config_desc, n, 0, &offset);
-		printf("[usbHost]:Releasing intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
+		USB_HOST_DEBUG_ARGS("[usbHost]:Releasing intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
 		if (intf->bInterfaceClass == 0x03) // HID - https://www.usb.org/defined-class-codes
 		{
-			printf("[usbHost]:Releasing HID intf->bInterfaceClass: 0x%02x \n", intf->bInterfaceClass);
+			USB_HOST_DEBUG_ARGS("[usbHost]:Releasing HID intf->bInterfaceClass: 0x%02x \n", intf->bInterfaceClass);
 			const usb_ep_desc_t *ep_in = nullptr;
 			const usb_ep_desc_t *ep_out = nullptr;
 			const usb_ep_desc_t *ep = nullptr;
@@ -474,8 +514,8 @@ static void aciton_close_dev(class_driver_t *driver_obj)
 						ep_out = ep;
 					}
 					
-					printf("[usbHost]:\t > Halting EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
-					printf("address: 0x%02x, EP max size: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
+					USB_HOST_DEBUG_ARGS("[usbHost]:\t > Halting EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
+					USB_HOST_DEBUG_ARGS("address: 0x%02x, EP max size: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
 					
 					ESP_ERROR_CHECK(usb_host_endpoint_halt(driver_obj->dev_hdl, ep->bEndpointAddress));
 					ESP_ERROR_CHECK(usb_host_endpoint_flush(driver_obj->dev_hdl, ep->bEndpointAddress));
@@ -494,8 +534,6 @@ static void aciton_close_dev(class_driver_t *driver_obj)
 	driver_obj->actions |= ACTION_EXIT;
 }
 
-/// @brief Driver de protocolo USB HID.
-/// @param arg Semáforo USB.
 static void usb_class_driver_task(void *arg)
 {
 	SemaphoreHandle_t signaling_sem = (SemaphoreHandle_t)arg;
@@ -504,7 +542,7 @@ static void usb_class_driver_task(void *arg)
 	// Wait until daemon task has installed USB Host Library
 	xSemaphoreTake(signaling_sem, portMAX_DELAY);
 
-	printf("[usbHost]:Registering Client");
+	USB_HOST_DEBUG_INFO("[usbHost]:Registering Client");
 	usb_host_client_config_t client_config = 
 	{
 		.is_synchronous = false, // Synchronous clients currently not supported. Set this to false
@@ -571,7 +609,7 @@ static void usb_class_driver_task(void *arg)
 
 	vSemaphoreDelete(driver_obj.transfer_done);
 
-	printf("[usbHost]:Deregistering Client");
+	USB_HOST_DEBUG_INFO("[usbHost]:Deregistering Client");
 	ESP_ERROR_CHECK(usb_host_client_deregister(driver_obj.client_hdl));
 
 	// Wait to be deleted

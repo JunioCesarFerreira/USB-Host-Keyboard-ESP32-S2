@@ -1,5 +1,15 @@
 #include "USBKeyboard.h"
 
+//#define USB_KEYBOARD_DEBUG // to enable debug log this file.
+
+#ifdef USB_KEYBOARD_DEBUG
+#define USB_KEYBOARD_DEBUG_ARGS(string,...) (printf(string,__VA_ARGS__))
+#define USB_KEYBOARD_DEBUG_INFO(string) (printf(string))
+#else
+#define USB_KEYBOARD_DEBUG_ARGS(string,...)
+#define USB_KEYBOARD_DEBUG_INFO(string)
+#endif
+
 keyboard_data_received_cb usb_keyboard_callback;
 
 char data_received[USB_BUFFER_LENGTH]; 
@@ -33,25 +43,29 @@ void USBKeyboard::clearBuffer()
 	data_received_length = 0;
 }
 
+/// @brief Keyboard map (based on a brazilian keyboard).
+/// @param byte0 Indicate specials keys pressed.
+/// @param byte2 Code to keyboard map.
+/// @return char ASCII key pressed.
 char keyboard_mapping(uint8_t byte0, uint8_t byte2)
 {
-	printf("[Keyboard]:Bytes mapping: (%x, %x)", byte0, byte2);
+	USB_KEYBOARD_DEBUG_ARGS("[Keyboard]:Bytes mapping: (0x%02x, 0x%02x)", byte0, byte2);
 	uint8_t map_value = 0;
 	if (byte0==0 && byte2>=0x4F && byte2<=0x52)
 	{
 		switch (byte2) // Arrows
 		{
 			case 0x4F: // right
-				map_value = 39;
+				map_value = KEYBOARD_RIGHT_ARROW;
 				break;
 			case 0x50: // left
-				map_value = 37;
+				map_value = KEYBOARD_LEFT_ARROW;
 				break;
 			case 0x51: // down
-				map_value = 40;
+				map_value = KEYBOARD_DOWN_ARROW;
 				break;
 			case 0x52: // up
-				map_value = 38;
+				map_value = KEYBOARD_UP_ARROW;
 				break;
 		}
 	}
@@ -163,7 +177,7 @@ char keyboard_mapping(uint8_t byte0, uint8_t byte2)
 			map_value = '\\';
 		}
 	}
-	printf(" |-> 0x%x (char: %c)\n", map_value, (char)map_value);
+	USB_KEYBOARD_DEBUG_ARGS(" |-> 0x%02x (char: %c)\n", map_value, (char)map_value);
 	return (char)map_value;
 }
 
@@ -171,12 +185,14 @@ void usb_data_trasnfer_cb(usb_transfer_t *transfer)
 {
 	if (transfer->data_buffer[2] != 0) // Check byte to decode.
 	{
+#ifdef USB_KEYBOARD_DEBUG
 		printf("[USBKeyboard]:data received= ");
 		for (int i=0; i<transfer->actual_num_bytes; i++) 
 		{
-			printf("0x%x ", transfer->data_buffer[i]);
+			printf("0x%02x ", transfer->data_buffer[i]);
 		}
 		printf("\n");
+#endif
 		data_received[data_received_length] = keyboard_mapping(transfer->data_buffer[0], transfer->data_buffer[2]);
 		data_received_length++;
 		usb_keyboard_callback();

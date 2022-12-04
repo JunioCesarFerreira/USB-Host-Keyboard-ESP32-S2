@@ -1,10 +1,15 @@
-#ifndef UsbBarCode_h
-#define UsbBarCode_h
+#ifndef UsbKeyboard_h
+#define UsbKeyboard_h
 
 #include <Arduino.h>
 #include <USBHost.h>
 
 #define USB_BUFFER_LENGTH 64
+
+#define KEYBOARD_RIGHT_ARROW 1
+#define KEYBOARD_LEFT_ARROW  2
+#define KEYBOARD_DOWN_ARROW  3 
+#define KEYBOARD_UP_ARROW    4
 
 typedef void (*keyboard_data_received_cb)(void);
 
