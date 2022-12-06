@@ -36,8 +36,13 @@ typedef struct
 	usb_device_handle_t dev_hdl;
 	uint32_t actions;
 	uint16_t bMaxPacketSize0;
-	usb_ep_desc_t *ep_in;
-	usb_ep_desc_t *ep_out;
+	
+	usb_ep_desc_t **endpoints_in;
+	size_t num_ep_in;
+	
+	usb_ep_desc_t **endpoints_out;
+	size_t num_ep_out;
+
 	SemaphoreHandle_t transfer_done;
 	usb_transfer_status_t transfer_status;
 } class_driver_t;
@@ -47,18 +52,26 @@ static usb_detected_cb_t usb_detected_cb;
 static usb_open_cb_t usb_open_cb;
 static usb_close_cb_t usb_close_cb;
 
+static HidInterfaceProtocol interface_protocol;
+
 // Tasks
 static void usb_host_lib_daemon_task(void *arg);
 static void usb_class_driver_task(void *arg);
 static void usb_host_task(void* args);
 
 // This allows reconnection.
-void startUsbHostTasks(usb_detected_cb_t detected_cb, usb_open_cb_t open_cb, usb_data_transfer_cb_t transfer_cb, usb_close_cb_t close_cb)
+void startUsbHostTasks(
+	HidInterfaceProtocol interfaceProtocol, 
+	usb_detected_cb_t detected_cb, 
+	usb_open_cb_t open_cb, 
+	usb_data_transfer_cb_t transfer_cb, 
+	usb_close_cb_t close_cb)
 {
 	usb_data_transfer_cb = transfer_cb;
 	usb_detected_cb = detected_cb;
 	usb_open_cb = open_cb;
 	usb_close_cb = close_cb;
+	interface_protocol = interfaceProtocol;
 	
 	xTaskCreatePinnedToCore(usb_host_task,
 							"usb_host_task",
@@ -281,6 +294,9 @@ static void action_claim_interface(class_driver_t *driver_obj)
 	bool hidIntfClaimed = false;
 	int offset = 0;
 
+	std::queue<usb_ep_desc_t*> ep_in_queue;
+	std::queue<usb_ep_desc_t*> ep_out_queue;
+
 	for (size_t n = 0; n < config_desc->bNumInterfaces; n++)
 	{
 		const usb_intf_desc_t *intf = usb_parse_interface_descriptor(config_desc, n, 0, &offset);
@@ -290,52 +306,66 @@ static void action_claim_interface(class_driver_t *driver_obj)
 		{
 			USB_HOST_DEBUG_ARGS("[usbHost]:Detected HID intf->bInterfaceClass: 0x%02x \n", intf->bInterfaceClass);
 
-			const usb_ep_desc_t *ep_in = nullptr;
-			const usb_ep_desc_t *ep_out = nullptr;
-			const usb_ep_desc_t *ep = nullptr;
-			for (size_t i = 0; i < intf->bNumEndpoints; i++) 
+			if (intf->bInterfaceProtocol == interface_protocol)
 			{
-				int _offset = 0;
-				ep = usb_parse_endpoint_descriptor_by_index(intf, i, config_desc->wTotalLength, &_offset);
-				USB_HOST_DEBUG_ARGS("[usbHost]:\t > Detected EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
-				if (ep) 
+				const usb_ep_desc_t *ep = nullptr;
+				for (size_t i = 0; i < intf->bNumEndpoints; i++) 
 				{
-					USB_HOST_DEBUG_ARGS("[usbHost]:address: 0x%02x, mps: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
-					if (ep->bmAttributes != USB_TRANSFER_TYPE_INTR) 
+					int _offset = 0;
+					ep = usb_parse_endpoint_descriptor_by_index(intf, i, config_desc->wTotalLength, &_offset);
+					USB_HOST_DEBUG_ARGS("[usbHost]:\t > Detected EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
+					if (ep) 
 					{
-						// only support INTERRUPT > IN Report in action_transfer() for now
-						continue;
-					}
-					if (ep->bEndpointAddress & 0x80) 
-					{
-						ep_in = ep;
-						if (ep->wMaxPacketSize == 8) // this needs to be improved.
+						USB_HOST_DEBUG_ARGS("[usbHost]:address: 0x%02x, mps: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
+						if (ep->bmAttributes != USB_TRANSFER_TYPE_INTR) 
 						{
-							driver_obj->ep_in = (usb_ep_desc_t *)ep_in;
+							// only support INTERRUPT > IN Report in action_transfer() for now
+							continue;
 						}
-					} 
+						if (ep->bEndpointAddress & 0x80) 
+						{
+							ep_in_queue.push((usb_ep_desc_t *)ep);
+						} 
+						else 
+						{
+							ep_out_queue.push((usb_ep_desc_t *)ep);
+						}
+					}
 					else 
 					{
-						ep_out = ep;
-						driver_obj->ep_out = (usb_ep_desc_t *)ep_out;
+						USB_HOST_DEBUG_ARGS("[usbHost]:error to parse endpoint by index; EP num: %d/%d, len: %d", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
 					}
 				}
+				esp_err_t err = usb_host_interface_claim(driver_obj->client_hdl, driver_obj->dev_hdl, n, 0);
+				if (err) 
+				{
+					USB_HOST_DEBUG_ARGS("[usbHost]:error interface claim status: %d", err);
+				} 
 				else 
 				{
-					USB_HOST_DEBUG_ARGS("[usbHost]:error to parse endpoint by index; EP num: %d/%d, len: %d", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
+					USB_HOST_DEBUG_ARGS("[usbHost]:Claimed HID intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
+					hidIntfClaimed = true;
 				}
 			}
-			esp_err_t err = usb_host_interface_claim(driver_obj->client_hdl, driver_obj->dev_hdl, n, 0);
-			if (err) 
-			{
-				USB_HOST_DEBUG_ARGS("[usbHost]:error interface claim status: %d", err);
-			} 
-			else 
-			{
-				USB_HOST_DEBUG_ARGS("[usbHost]:Claimed HID intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
-				hidIntfClaimed = true;
-			}
 		}
+	}
+
+	driver_obj->num_ep_in = ep_in_queue.size();
+	driver_obj->num_ep_out = ep_out_queue.size();
+
+	driver_obj->endpoints_in = new usb_ep_desc_t*[ep_in_queue.size()];
+	driver_obj->endpoints_out = new usb_ep_desc_t*[ep_out_queue.size()];
+
+	for (size_t i=0; i<driver_obj->num_ep_in; i++)
+	{
+		driver_obj->endpoints_in[i] = ep_in_queue.front();
+		ep_in_queue.pop();
+	}
+
+	for (size_t i=0; i<driver_obj->num_ep_out; i++)
+	{
+		driver_obj->endpoints_out[i] = ep_out_queue.front();
+		ep_out_queue.pop();
 	}
 
 	//Get the HID's descriptors next
@@ -445,54 +475,59 @@ static void action_transfer_control(class_driver_t *driver_obj)
 static void action_transfer(class_driver_t *driver_obj)
 {
 	assert(driver_obj->dev_hdl != NULL);
-	static uint16_t mps = driver_obj->ep_in->wMaxPacketSize;
-	static usb_transfer_t *transfer;
-	if (!transfer) 
+	static uint16_t mps[USB_HOST_HID_MAX_EP_DEV];
+	static usb_transfer_t *transfer[USB_HOST_HID_MAX_EP_DEV] = { NULL, NULL, NULL, NULL };
+	static int32_t lastSendTime[USB_HOST_HID_MAX_EP_DEV] = { 0, 0, 0, 0 };
+
+	for (size_t i=0; i<driver_obj->num_ep_in; i++)
 	{
-		usb_host_transfer_alloc(mps, 0, &transfer);
-	}
-	
-	static int32_t lastSendTime = 0;
-	if (xTaskGetTickCount() - lastSendTime > 16)
-	{
-		transfer->num_bytes = mps;
-		memset(transfer->data_buffer, 0x00, mps);
-
-		transfer->bEndpointAddress = driver_obj->ep_in->bEndpointAddress;
-
-		transfer->device_handle = driver_obj->dev_hdl;
-		transfer->callback = transfer_cb;
-		transfer->context = (void *)driver_obj;
-
-		transfer->timeout_ms = 30;
-
-		BaseType_t received = xSemaphoreTake(driver_obj->transfer_done, pdMS_TO_TICKS(10));
-		esp_err_t received_status;
-		if (received == pdTRUE) 
+		mps[i] = driver_obj->endpoints_in[i]->wMaxPacketSize;
+		if (transfer[i]==NULL) 
 		{
-			usb_host_transfer_submit(transfer);
-			usb_host_client_handle_events(driver_obj->client_hdl, 100); // for raising transfer->callback
-			received_status = wait_for_transfer_done(transfer);
-			if (transfer->status != USB_TRANSFER_STATUS_COMPLETED) 
-			{
-				USB_HOST_DEBUG_ARGS("[usbHost]:Transfer failed - Status %d \n", transfer->status);
-				vTaskDelay(10);
-				lastSendTime = xTaskGetTickCount();
-			}
+			usb_host_transfer_alloc(mps[i], 0, &transfer[i]);
 		}
 
-		if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) 
+		if (xTaskGetTickCount() - lastSendTime[i] > driver_obj->endpoints_in[i]->bInterval)
 		{
-			if (transfer->actual_num_bytes > 0) 
-			{
-				usb_data_transfer_cb(transfer);
-			}
-		}
+			transfer[i]->num_bytes = mps[i];
+			memset(transfer[i]->data_buffer, 0x00, mps[i]);
 
-		if (received_status == ESP_OK)
-		{
-			vTaskDelay(1); //Short delay to let client task spin up
-			lastSendTime = xTaskGetTickCount();
+			transfer[i]->bEndpointAddress = driver_obj->endpoints_in[i]->bEndpointAddress;
+
+			transfer[i]->device_handle = driver_obj->dev_hdl;
+			transfer[i]->callback = transfer_cb;
+			transfer[i]->context = (void *)driver_obj;
+
+			transfer[i]->timeout_ms = 30;
+
+			BaseType_t received = xSemaphoreTake(driver_obj->transfer_done, pdMS_TO_TICKS(10));
+			esp_err_t received_status;
+			if (received == pdTRUE) 
+			{
+				usb_host_transfer_submit(transfer[i]);
+				usb_host_client_handle_events(driver_obj->client_hdl, 100); // for raising transfer->callback
+				received_status = wait_for_transfer_done(transfer[i]);
+				if (transfer[i]->status != USB_TRANSFER_STATUS_COMPLETED) 
+				{
+					USB_HOST_DEBUG_ARGS("[usbHost]:Transfer failed - Status %d \n", transfer->status);
+					vTaskDelay(10);
+					lastSendTime[i] = xTaskGetTickCount();
+				}
+			}
+
+			if (transfer[i]->status == USB_TRANSFER_STATUS_COMPLETED) 
+			{
+				if (transfer[i]->actual_num_bytes > 0) 
+				{
+					usb_data_transfer_cb(transfer[i]);
+				}
+			}
+
+			if (received_status == ESP_OK)
+			{
+				vTaskDelay(1); //Short delay to let client task spin up
+				lastSendTime[i] = xTaskGetTickCount();
+			}
 		}
 	}
 }

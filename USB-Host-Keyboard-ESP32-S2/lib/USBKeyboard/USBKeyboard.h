@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <USBHostHid.h>
 
-#define USB_KEYBOARD_BUFFER_LENGTH 64
+#define USB_KEYBOARD_BUFFER_LENGTH 128
 
 #define KEYBOARD_RIGHT_ARROW 1
 #define KEYBOARD_LEFT_ARROW  2
