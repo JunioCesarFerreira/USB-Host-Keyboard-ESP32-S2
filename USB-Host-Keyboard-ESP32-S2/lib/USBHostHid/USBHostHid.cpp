@@ -2,7 +2,7 @@
 // https://github.com/badjeff/esp32_s2_usb_host_hid_test
 // https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/peripherals/usb_host.html
 
-#include "USBHost.h"
+#include "USBHostHid.h"
 
 //#define USB_HOST_DEBUG // to enable debug log this file.
 

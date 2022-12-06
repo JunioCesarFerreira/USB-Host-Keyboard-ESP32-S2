@@ -7,8 +7,8 @@
  * 
  */
 
-#ifndef USBHost_hpp
-#define USBHost_hpp
+#ifndef USBHostHid_hpp
+#define USBHostHid_hpp
 
 #include <cstring>
 #include <stdlib.h>

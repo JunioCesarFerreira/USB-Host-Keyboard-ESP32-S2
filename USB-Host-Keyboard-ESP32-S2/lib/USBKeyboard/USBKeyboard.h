@@ -2,7 +2,7 @@
 #define UsbKeyboard_h
 
 #include <Arduino.h>
-#include <USBHost.h>
+#include <USBHostHid.h>
 
 #define USB_KEYBOARD_BUFFER_LENGTH 64
 
