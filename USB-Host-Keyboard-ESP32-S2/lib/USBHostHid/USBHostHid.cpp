@@ -37,10 +37,10 @@ typedef struct
 	uint32_t actions;
 	uint16_t bMaxPacketSize0;
 	
-	usb_ep_desc_t **endpoints_in;
+	usb_ep_desc_t **arr_ep_in;
 	size_t num_ep_in;
 	
-	usb_ep_desc_t **endpoints_out;
+	usb_ep_desc_t **arr_ep_out;
 	size_t num_ep_out;
 
 	SemaphoreHandle_t transfer_done;
@@ -353,18 +353,18 @@ static void action_claim_interface(class_driver_t *driver_obj)
 	driver_obj->num_ep_in = ep_in_queue.size();
 	driver_obj->num_ep_out = ep_out_queue.size();
 
-	driver_obj->endpoints_in = new usb_ep_desc_t*[ep_in_queue.size()];
-	driver_obj->endpoints_out = new usb_ep_desc_t*[ep_out_queue.size()];
+	driver_obj->arr_ep_in = new usb_ep_desc_t*[ep_in_queue.size()];
+	driver_obj->arr_ep_out = new usb_ep_desc_t*[ep_out_queue.size()];
 
 	for (size_t i=0; i<driver_obj->num_ep_in; i++)
 	{
-		driver_obj->endpoints_in[i] = ep_in_queue.front();
+		driver_obj->arr_ep_in[i] = ep_in_queue.front();
 		ep_in_queue.pop();
 	}
 
 	for (size_t i=0; i<driver_obj->num_ep_out; i++)
 	{
-		driver_obj->endpoints_out[i] = ep_out_queue.front();
+		driver_obj->arr_ep_out[i] = ep_out_queue.front();
 		ep_out_queue.pop();
 	}
 
@@ -481,18 +481,18 @@ static void action_transfer(class_driver_t *driver_obj)
 
 	for (size_t i=0; i<driver_obj->num_ep_in; i++)
 	{
-		mps[i] = driver_obj->endpoints_in[i]->wMaxPacketSize;
+		mps[i] = driver_obj->arr_ep_in[i]->wMaxPacketSize;
 		if (transfer[i]==NULL) 
 		{
 			usb_host_transfer_alloc(mps[i], 0, &transfer[i]);
 		}
 
-		if (xTaskGetTickCount() - lastSendTime[i] > driver_obj->endpoints_in[i]->bInterval)
+		if (xTaskGetTickCount() - lastSendTime[i] > driver_obj->arr_ep_in[i]->bInterval)
 		{
 			transfer[i]->num_bytes = mps[i];
 			memset(transfer[i]->data_buffer, 0x00, mps[i]);
 
-			transfer[i]->bEndpointAddress = driver_obj->endpoints_in[i]->bEndpointAddress;
+			transfer[i]->bEndpointAddress = driver_obj->arr_ep_in[i]->bEndpointAddress;
 
 			transfer[i]->device_handle = driver_obj->dev_hdl;
 			transfer[i]->callback = transfer_cb;

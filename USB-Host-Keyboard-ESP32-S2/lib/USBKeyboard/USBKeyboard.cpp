@@ -25,7 +25,7 @@ void USBKeyboard::begin(keyboard_data_received_cb cb)
 	usb_keyboard_callback = cb;
 	clearBuffer();
 	startUsbHostTasks(
-		HID_KEYBOARD,
+		USB_HID_KEYBOARD,
 		usb_opening_cb, 
 		usb_opened_cb,
 		usb_data_trasnfer_cb,

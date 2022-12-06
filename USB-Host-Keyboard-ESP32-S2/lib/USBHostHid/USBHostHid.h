@@ -30,9 +30,9 @@
 // see https://www.usb.org/sites/default/files/hid1_11.pdf page 68.
 enum HidInterfaceProtocol
 {
-    HID_NONE,
-    HID_KEYBOARD,
-    HID_MOUSE
+    USB_HID_NONE,
+    USB_HID_KEYBOARD,
+    USB_HID_MOUSE
 };
 
 typedef void (*usb_data_transfer_cb_t)(usb_transfer_t *transfer);
