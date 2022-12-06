@@ -425,7 +425,7 @@ static void action_transfer_control(class_driver_t *driver_obj)
 		transfer->device_handle = driver_obj->dev_hdl;
 		transfer->callback = transfer_cb;
 		transfer->context = (void *)driver_obj;
-		transfer->timeout_ms = 5000;
+		transfer->timeout_ms = 500;
 
 		BaseType_t received = xSemaphoreTake(driver_obj->transfer_done, 100);
 		if (received == pdTRUE) 
@@ -542,27 +542,17 @@ static void aciton_close_dev(class_driver_t *driver_obj)
 	{
 		const usb_intf_desc_t *intf = usb_parse_interface_descriptor(config_desc, n, 0, &offset);
 		USB_HOST_DEBUG_ARGS("[usbHost]:Releasing intf->bInterfaceNumber: 0x%02x \n", intf->bInterfaceNumber);
-		if (intf->bInterfaceClass == 0x03) // HID - https://www.usb.org/defined-class-codes
+		if (intf->bInterfaceClass == 0x03 && intf->bInterfaceProtocol == interface_protocol) // HID - https://www.usb.org/defined-class-codes
 		{
 			USB_HOST_DEBUG_ARGS("[usbHost]:Releasing HID intf->bInterfaceClass: 0x%02x \n", intf->bInterfaceClass);
-			const usb_ep_desc_t *ep_in = nullptr;
-			const usb_ep_desc_t *ep_out = nullptr;
+
 			const usb_ep_desc_t *ep = nullptr;
 			for (size_t i = 0; i < intf->bNumEndpoints; i++) 
 			{
 				int _offset = 0;
 				ep = usb_parse_endpoint_descriptor_by_index(intf, i, config_desc->wTotalLength, &_offset);
 				if (ep) 
-				{
-					if (ep->bEndpointAddress & 0x80) 
-					{
-						ep_in = ep;
-					} 
-					else 
-					{
-						ep_out = ep;
-					}
-					
+				{					
 					USB_HOST_DEBUG_ARGS("[usbHost]:\t > Halting EP num: %d/%d, len: %d, ", i + 1, intf->bNumEndpoints, config_desc->wTotalLength);
 					USB_HOST_DEBUG_ARGS("address: 0x%02x, EP max size: %d, dir: %s\n", ep->bEndpointAddress, ep->wMaxPacketSize, (ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
 					
