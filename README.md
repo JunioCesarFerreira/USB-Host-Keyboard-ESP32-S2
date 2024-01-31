@@ -2,8 +2,6 @@
 
 🌍 *[Português](README.md) ∙ [English](README_en.md)*
 
-# USB-Host-Keyboard-ESP32-S2
-
 ## Visão Geral
 Este projeto implementa um teclado USB host usando um microcontrolador ESP32-S2. Ele é projetado para interagir com teclados USB e processar suas entradas.
 
