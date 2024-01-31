@@ -48,4 +48,4 @@ Este projeto implementa um teclado USB host usando um microcontrolador ESP32-S2.
 Contribuições para este projeto são bem-vindas. Por favor, siga as práticas padrão de codificação e forneça descrições detalhadas de suas contribuições.
 
 ## Licença
-Este projeto está licenciado sob [LICENSE](LICENSE). Veja o arquivo LICENSE para mais detalhes.
+Este projeto está licenciado sob [LICENSE](LICENSE). Veja o arquivo [LICENSE](LICENSE) para mais detalhes.

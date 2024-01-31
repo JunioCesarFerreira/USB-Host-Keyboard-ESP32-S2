@@ -48,4 +48,4 @@ This project implements a USB host keyboard using an ESP32-S2 microcontroller. I
 Contributions to this project are welcome. Please follow standard coding practices and provide detailed descriptions of your contributions.
 
 ## License
-This project is licensed under [LICENSE](LICENSE). See the LICENSE file for more details.
+This project is licensed under [LICENSE](LICENSE). See the [LICENSE](LICENSE) file for more details.
