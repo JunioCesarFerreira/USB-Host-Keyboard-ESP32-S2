@@ -20,7 +20,7 @@ This project implements a USB keyboard host using the ESP32-S2 microcontroller. 
 1. Install **PlatformIO IDE** or integrate it with **Visual Studio Code**.
 2. Clone this repository to your local machine:
    ```bash
-   git clone https://github.com/your_username/usb-host-keyboard-esp32-s2.git
+   git clone https://github.com/JunioCesarFerreira/USB-Host-Keyboard-ESP32-S2
    ```
 3. Open the project in PlatformIO or your preferred ESP32 development environment.
 
@@ -29,18 +29,13 @@ This project implements a USB keyboard host using the ESP32-S2 microcontroller. 
 2. Power on the ESP32-S2.
 3. The device will automatically start processing keyboard inputs.
 
-## Project Structure
-- **`.gitignore`**: Lists files and directories ignored by Git.
-- **`.pio`**: Stores PlatformIO build outputs and configurations.
-- **`.vscode`**: VSCode configuration files for the project.
-- **`include`**: Header and inclusion files.
+## Project Structur
 - **`lib`**: Libraries used in the project.
   - **RgbPixel**: RGB pixel control.
   - **USBHostHid**: USB HID Host handling.
   - **USBKeyboard**: USB keyboard functionalities.
 - **`platformio.ini`**: PlatformIO configuration file.
 - **`src`**: Main source code of the project.
-- **`test`**: Test scripts to validate the project.
 
 ## Libraries
 - **RgbPixel**: Manages RGB pixel control.
